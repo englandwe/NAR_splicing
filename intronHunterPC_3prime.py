@@ -87,7 +87,7 @@ def shapeByRegion(shapefile,chunkStart,chunkSize):
                                  #now add that to the suspicious exon's transcript start position
                                  tx_junct=int(possible_ret[2])+ret_dist
                                  #are there at least 70bp before the next junction?
-                                 if stopex[1] - stopex[0]:
+                                 if stopex[1] - stopex[0] > 70:
                                      #then let's do this
                                      subrange=range(tx_junct,tx_junct+70)
                                      shapesub=[]

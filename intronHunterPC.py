@@ -91,7 +91,7 @@ def shapeByRegion(shapefile,chunkStart,chunkSize):
                                      subrange=range(tx_junct-69,tx_junct+1)
                                      shapesub=[]
                                      pcsub=[]
-				     for pos in subrange: 
+				                     for pos in subrange:
                                          shapeval=tmpshape[3:][pos-1]
                                          shapesub.append(shapeval)
                                      shapeout.append([txname,coder,ret_chr[0],str(startex_end)]+shapesub)

@@ -7,6 +7,7 @@ from datetime import datetime
 from Bio import SeqIO
 from Bio.Seq import Seq
 from Bio.SeqRecord import SeqRecord
+from scipy import stats as ss
 
 class GtfRec(object):
     def __init__(self,reclist):
@@ -75,7 +76,7 @@ with open(rangefile) as infile:
             #gtfs are right inclusive, so compensate
             elif flanked_endpoints[1] > txentry.end+1:
                 flanked_endpoints[1]=txentry.end+1
-                downflank=endpoints70[1]-(txentry.end+1)
+                downflank=(txentry.end+1)-endpoints70[1]
             range_seq=fasta_dict[chrom].seq[flanked_endpoints[0]-1:flanked_endpoints[1]-1]
             rec=SeqRecord(range_seq,id=instr+'_'+str(cntr),description='_'.join([str(x) for x in [chrom,flanked_endpoints[0],flanked_endpoints[1],upflank,downflank]]))
             reclist.append(rec)
@@ -89,27 +90,64 @@ with open(instr+'.fa', 'w') as ofile:
         ofile.write('>'+record.id+' '+record.description+'\n'+sequence+'\n')
 
 big_outs=[]
+bypos_dict={}
 for record in reclist:
+    sequence = str(record.seq)
     plstring='>'+record.id+' '+record.description+'\n'+sequence+'\n'
-    plin=plstring.encode('utf-8')
+    #localfold won't do stdin
+    #plin=plstring.encode('utf-8')
+    tmpname=record.id+'_localfoldtmpfile.fa'
+    with open(tmpname,'w') as tmpfile:
+        tmpfile.write(plstring)
+
     lunp_in=record.id+'_lunp'
-    psfile=record.id+'_dp.ps'
+    #psfile=record.id+'_dp.ps'
+    psfile=record.id+'_localfoldtmpfile_W120_L70_skip10.ps'
     flanks=[int(x) for x in record.description.split('_')[3:]]
-    subprocess.run(['RNAplfold', '-u6'],input=plin,check=True)
+    #subprocess.run(['RNAplfold', '-u6'],input=plin,check=True)
+    subprocess.run(['perl', 'LocalFold-1.0/localfold_fix.pl', '-seqfile='+tmpname, '-u', '6', '-L', '70', '-W', '120'],check=True)
     #retrieve data from lunp file
     #RNAplfold counts from the right side of the hexamer
-    with open(lunp_in) as infile:
-        next(infile)
-        next(infile)
+    #with open(lunp_in) as infile:
+    #    next(infile)
+    #    next(infile)
+    #no lunp for localfold; use .acc instead
+    #coding_mouse_invivo_3prime_1_localfoldtmpfile_W100_L70_skip10.acc
+    #with open(lunp_in) as infile:
+    acc_in=record.id+'_localfoldtmpfile_W120_L70_skip10.acc'
+    with open(acc_in) as infile:
         for line in infile:
             tmpline=line.strip().split('\t')
             if int(tmpline[0]) > flanks[0] + 5 and int(tmpline[0]) <= flanks[0] + 70:
                 #previous output started from 0, so let's line up with that
-                big_outs.append(record.id+'\t'+str(int(tmpline[0])-flanks[0]-6)+'\t'+tmpline[6]+'\n')
+                hexpos=str(int(tmpline[0])-flanks[0]-6)
+                big_outs.append(record.id+'\t'+hexpos+'\t'+tmpline[6]+'\n')
+                #also arrange them by sample and position so we can grab mean and sem
+                #shave off the id number
+                sampbase='_'.join(record.id.split('_')[0:-1])
+                try:
+                    bypos_dict[sampbase][hexpos].append(float(tmpline[6]))
+                except KeyError:
+                    try:
+                        bypos_dict[sampbase][hexpos]=[]
+                        bypos_dict[sampbase][hexpos].append(float(tmpline[6]))
+                    except KeyError:
+                        bypos_dict[sampbase]={}
+                        bypos_dict[sampbase][hexpos]=[]
+                        bypos_dict[sampbase][hexpos].append(float(tmpline[6]))
+                     
     #clean up
-    subprocess.run(['rm', psfile, lunp_in],check=True)
+    subprocess.run(['rm', psfile, acc_in, tmpname],check=True)
     
 #and we're done
 with open(instr+'_plout.tsv','w') as outfile:
     for entry in big_outs:
         outfile.write(entry)            
+
+#well almost            
+with open(instr+'_meanout.tsv','w') as outfile:
+    for sample,positions in bypos_dict.items():
+        for pos in positions:
+            posmean=sum(bypos_dict[sample][pos])/len(bypos_dict[sample][pos])
+            possem=ss.sem(bypos_dict[sample][pos])
+            outfile.write('\t'.join([str(x) for x in [sample,pos,posmean,possem]])+'\n')
